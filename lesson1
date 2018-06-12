@@ -1,0 +1,77 @@
+/*1 - В таблице аудита найти количество попыток продвижения заказа 2520123, закончившихся ошибкой.
+Результат: количество попыток*/
+select count(substr('2520123',7)) as prodv_z
+from fw_process_log 
+where N_STATUS = 500
+--2
+/*В таблице аудита найти дату/время последней попытки продвижения заказа 2520123, закончившейся ошибкой.
+Результат: дата/время попытки в формате dd.mon.yyyy и номер заказа*/
+select max(to_char(DT_TIMESTAMP,'dd.mon.yyyy hh24.mi.ss.ff')) as n_date, '2520123' as NUM --или просто дату7
+from fw_process_log 
+where v_message like '%2520123%'
+--3
+/*Найти все номера заказов в таблице аудита, с которых начиналась загрузка порции заказов.
+Результат: номера заказов*/
+Select ltrim(v_message, 'Загрузка порции заказов начиная с')
+FROM (Select V_MESSAGE from fw_process_log where v_message like 'Загрузка порции заказов%' group by v_message)
+--4
+/*Найти количество уникальных номеров заказов в таблице аудита, с которых начиналась загрузка порции заказов.
+Результат: единственное число - количество заказов*/
+Select count(*)
+FROM (Select V_MESSAGE from fw_process_log where v_message like 'Загрузка порции заказов%' group by v_message having count(v_message)<2)
+--5
+/*Найти суммарную продолжительность продвижения заказов в долях секунды (доли секунды для "+000000000 00:00:00.063924000" = 63924000) в таблице аудита.
+Результат: единственное число*/
+select qw
+from (select sum(substr(v_message,instr(v_message, '00.')+3)) as qw from fw_process_log
+where instr(v_message, 'Общее время')>0)
+--6
+/*Сколько было завершённых процессов продвижения заказов в таблице аудита в марте 2018.
+Результат: единственное число - количество завершённых процессов*/
+select count(substr('Процесс продвижения заказов завершен.',1)) as proc_end
+from fw_process_log
+where trunc(DT_TIMESTAMP) = to_date('03-2018','mm-yyyy')
+--7
+/*Сколько повторяющихся идентификаторов сессии есть в таблице аудита.
+Результат: единственное число - количество повторяющихся идентификаторов*/
+select count(SID)
+FROM (select SID, count(SID) from fw_process_log t group by t.SID having count(t.SID)>1)
+--8
+/*Найти пользователя и последнюю дату его входа по таблице аудита для кода пользователя = 11136.
+Результат: дата/время и логин пользователя*/
+select trim(max(DT_TIMESTAMP)||' , '||ID_USER)
+from fw_process_log
+group by ID_USER
+having ID_USER = 11136
+--10
+/*Сколько записей в таблице аудита со статусом сообщения = "Ошибка" для процесса с кодом = 5 в интервале 22.02.2018 - 02.03.2018 (не включая границы). Сколько среди них с уникальным текстом сообщения
+Результат: два числа - общее количество записей по условиям и количество записей с уникальным сообщением*/
+select trim(count(*)||'  -  '|| count(distinct v_message))
+from fw_process_log t
+where t.ID_PROCESS = 5
+and t.N_STATUS = 500
+and t.DT_TIMESTAMP between to_date('23.02.2018','dd.mm.yyyy') and to_date('01.03.2018','dd.mm.yyyy')
+--9
+/*Вывести количество записей в таблице аудита по месяцам. 
+Результат: название месяца и количество записей аудита в нём*/
+select m_date as t_date, count(*) as zp 
+from (select to_char(dt_timestamp,'month') as m_date from fw_process_log)
+group by m_date
+--11
+/*По таблице переводов найти минимальную сумму перевода с датой поступления в систему в интервале 10:00-12:00 14 февраля 2017 при условии, что перевод должен был проходить между разными контрактами.
+Результат: единственное число - сумма перевода*/
+select min(N_SUM) as PER_SUM
+from (select * from fw_transfers where DT_INCOMING >= to_date('14.02.2017 10.00','dd.mm.yyyy hh24.mi') and DT_INCOMING <= to_date('14.02.2017 12.00','dd.mm.yyyy hh24.mi') and ID_CONTRACT_FROM <> ID_CONTRACT_TO)
+--12
+/*На печатном бланке для денежного перевода есть поле для комментария к денежному переводу. Максимальная длина текста в данном поле = 22 символам. Найти переводы, комментарий к которым не поместится на данном бланке. 
+Результат: контракт (на который совершался перевод), дата перевода от оператора, количество символов комментария, которые не влезают в поле бланка. Список должен быть отсортирован по количеству "невлезающих" символов в порядке убывания*/
+select ID_CONTRACT_TO, to_char(DT_REAL,'dd.mm.yyyy') as d_time, LENGTH(V_DESCRIPTION)-22 as len_KOM
+from fw_transfers
+where LENGTH(V_DESCRIPTION) > 22
+order by len_KOM desc
+--13
+/*Предоставить срез количества денежных переводов внутри контракта (контракт с которого = контракт на который) по дням.
+Результат: день в формате dd.mm.yyyy и количество переводов в этот день.*/
+select r_date, count(ID_CONTRACT_FROM)
+from (select to_char(DT_REAL,'dd.mm.yyyy') as r_date, ID_CONTRACT_FROM from fw_transfers where ID_CONTRACT_FROM = ID_CONTRACT_TO)
+group by r_date
