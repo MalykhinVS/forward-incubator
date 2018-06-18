@@ -1,0 +1,72 @@
+--1
+select max(d.DT_EVENT), d.F_SUM 
+FROM fw_contracts c 
+join trans_external d 
+on c.ID_CONTRACT_INST = d.ID_CONTRACT 
+where c.V_EXT_IDENT = '0102100000088207_MG1' and d.dt_event = (select max(f.dt_event) from trans_external f where f.ID_CONTRACT = d.ID_CONTRACT) 
+group by d.f_sum;
+--2
+select e.v_ext_ident, e.DT_REG_EVENT, nvl(d.V_NAME,NULL) 
+from fw_contracts e 
+left join fw_departments d 
+on e.ID_DEPARTMENT = d.ID_DEPARTMENT 
+and e.v_status = 'A';
+--3
+select t.v_name
+from fw_departments t
+join (select count(e.id_contract_inst) as qwe, e.id_department from fw_contracts e group by e.id_department) r
+on t.id_department = r.id_department
+where r.qwe<2 ;
+--4
+select nvl(q.v_name,0), count(w.f_SUM), sum(w.f_SUM), contr
+from (select r.v_name, r.id_department, count(y.id_contract_INST) as contr from fw_DEPARTMENTS r join fw_contracts y on r.id_department = y.id_department group by r.v_name, r.id_department) q
+join fw_contracts f
+on q.id_department = f.id_department
+join trans_external w
+on f.id_contract_inst = w.id_contract
+where trunc(w.dt_event,'mm')= (select max(trunc(dt_event,'mm')) from trans_external)
+group by q.v_name, contr;
+--5
+Select a.V_EXT_IDENT, a.V_STATUS, ccc as c_plat
+from fw_contracts a
+join (select count(ID_TRANS) as ccc, ID_CONTRACT from trans_external where dt_event between to_date('01.01.2017','dd.mm.yyyy') and to_date('31.12.2017','dd.mm.yyyy') group by ID_CONTRACT) c
+on a.ID_CONTRACT_INST= c.ID_CONTRACT
+where dt_stop=to_date('01.01.2500', 'dd.mm.yyyy')
+and ccc>3;
+--6
+select distinct t.V_EXT_IDENT, t.v_status, e.v_name
+from fw_contracts t
+left join fw_departments e
+on t.id_department = e.id_department
+join (select distinct count(id_trans) as qwe, id_contract from trans_external where dt_event>=to_date('01.01.2017','dd.mm.yyyy') and dt_event<=to_date('31.12.2017','dd.mm.yyyy')
+group by id_contract) e
+on t.id_contract_inst = e.id_contract
+where dt_stop = to_date('01.01.2500','dd.mm.yyyy');
+--7
+select distinct e.V_NAME
+from fw_departments e
+where e.ID_DEPARTMENT not in (select ID_DEpartment from fw_contracts);
+--8
+select count(a.ID_TRaNS), a.v_DT_EVENT, b.v_EXT_IDENT, a.ID_MANAGER 
+from (select count(DT_EVENT) as v_dt_event, ID_TRANS, ID_CONTRACT, ID_MANAGER from trans_external group by ID_TRANS, ID_CONTRACT, ID_MANAGER) a left join 
+fw_contracts b 
+on a.ID_CONTRACT = b.ID_CONTRACT_INST 
+group by a.v_DT_EVENT, b.v_EXT_IDENT, a.ID_MANAGER;
+--9
+select q.v_ext_ident
+from fw_contracts q
+inner join trans_external w
+on w.id_contract =  q.ID_CONTRACT_INST
+where q.dt_start <= to_date('01.01.2016','dd.mm.yyyy') and  w.ID_TRANS = 6397542;
+--10
+select a.ID_CONTRACT_INST, a.V_EXT_IDENT, a.V_STATUS, b.v_name
+from fw_contracts a
+join (select count(distinct nvl(id_currency,0)) as qwer, ID_CONTRACT_INST from fw_contracts group by ID_CONTRACT_INST) c
+on a.ID_CONTRACT_INST = c.ID_CONTRACT_INST
+left join fw_currency b
+on a.ID_CURRENCY = b.ID_CURRENCY
+where a.dt_stop = to_date('01.01.2500','dd.mm.yyyy') and qwer >1;
+--11
+select a.ID_CONTRACT_INST
+from (select count(v_status) as qwer, ID_CONTRACT_INST from fw_contracts where v_status = 'C' group by ID_CONTRACT_INST) a 
+where qwer>1;
