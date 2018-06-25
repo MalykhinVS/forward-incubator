@@ -1,0 +1,33 @@
+create or replace procedure getEquip(pID_EQUIP_KITS_INST in scd_equip_kits.id_equip_kits_inst%TYPE default null,
+                                     dwr                 out sys_refcursor) is
+  v_equip scd_equip_kits.id_equip_kits_inst%TYPE;
+begin
+  OPEN dwr FOR
+    select distinct cu.V_DESCRIPTION,
+                    cu.V_USERNAME,
+                    sek.ID_CONTRACT_INST,
+                    sekt.v_name,
+                    getDecoder_1(pID_EQUIP_KITS_INST) as qwer
+      from ci_users cu
+      join fw_contracts fc
+      on cu.id_client_inst = fc.id_client_inst and fc.dt_start<=current_timestamp and fc.dt_stop >= current_timestamp
+      join scd_equip_kits sek
+        on sek.id_contract_inst = fc.id_contract_inst
+      join scd_equipment_kits_type sekt
+        on sek.id_equip_kits_type = sekt.id_equip_kits_type
+        where sek.id_equip_kits_inst = pID_EQUIP_KITS_INST;
+    loop 
+      If pID_EQUIP_KITS_INST is null then
+    dbms_output.put_line(dwr.v_description,
+
+                         V_USERNAME,
+                         ID_CONTRACT_INST,
+                         v_name,
+                         dwr.qwer);-- тут непонятно, как выводить.
+  else
+    dbms_output.put_line(qwer);
+  end if;
+  exit when dwr%notfound;
+  end loop;
+  close dwr;
+end;
