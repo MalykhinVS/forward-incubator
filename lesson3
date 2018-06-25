@@ -1,0 +1,302 @@
+--1
+select fc.id_contract_inst, fc.qwer
+  from (select fc.id_contract_inst,
+               sum(fs.n_cost_period) as qwer,
+               fc.id_department
+          from fw_services_cost fs
+          join fw_contracts fc
+            on fc.id_contract_inst = fs.id_contract_inst
+           and fc.dt_start <= current_timestamp
+           and fc.dt_stop > current_timestamp
+         where fs.dt_start <= current_timestamp
+           and fs.dt_stop > current_timestamp
+         group by fc.id_contract_inst, fc.id_department) fc
+  join (select r.id_department, avg(r.qwer) as qwe
+          from (select fc.id_contract_inst,
+                       sum(fs.n_cost_period) as qwer,
+                       fc.id_department
+                  from fw_services_cost fs
+                  join fw_contracts fc
+                    on fc.id_contract_inst = fs.id_contract_inst
+                   and fc.dt_start <= current_timestamp
+                   and fc.dt_stop > current_timestamp
+                 where fs.dt_start <= current_timestamp
+                   and fs.dt_stop > current_timestamp
+                 group by fc.id_contract_inst, fc.id_department) r
+         group by r.id_department) qw
+    on fc.id_department = qw.id_department
+   and fc.qwer > qw.qwe;
+--2
+/*Найти услуги всех абонентов, чья абон.плата больше средней абон.платы (пофилиально).<br>
+ _Результат_: название услуги, филиал, величина сумм АП за услугу внутри филиала.*/
+select distinct t.v_name, fwd.id_department, n_cost
+  from (select fws.id_service, fc.id_contract_inst, fc.qwer
+          from (select fc.id_contract_inst,
+                       sum(fs.n_cost_period) as qwer,
+                       fc.id_department
+                  from fw_services_cost fs
+                  join fw_contracts fc
+                    on fc.id_contract_inst = fs.id_contract_inst
+                   and fc.dt_start <= current_timestamp
+                   and fc.dt_stop > current_timestamp
+                 where fs.dt_start <= current_timestamp
+                   and fs.dt_stop > current_timestamp
+                 group by fc.id_contract_inst, fc.id_department) fc
+          left join (select r.id_department, avg(r.qwer) as qwe
+                      from (select fc.id_contract_inst,
+                                   sum(fs.n_cost_period) as qwer,
+                                   fc.id_department
+                              from fw_services_cost fs
+                              join fw_contracts fc
+                                on fc.id_contract_inst = fs.id_contract_inst
+                               and fc.dt_start <= current_timestamp
+                               and fc.dt_stop > current_timestamp
+                             where fs.dt_start <= current_timestamp
+                               and fs.dt_stop > current_timestamp
+                             group by fc.id_contract_inst, fc.id_department) r
+                     group by r.id_department) qw
+            on fc.id_department = qw.id_department
+           and fc.qwer > qw.qwe
+          join fw_services fws
+            on fws.ID_CONTRACT_INST = fc.id_contract_inst
+           and fws.dt_start <= current_timestamp
+           and fws.dt_stop > current_timestamp) q
+  join fw_contracts fcs
+    on fcs.id_contract_inst = q.id_contract_inst
+  join fw_service t
+    on q.ID_SERVICE = t.id_service
+  join (select y.id_department, n.id_service, sum(q.N_COST_PERIOD) as n_cost
+          from fw_services_cost q
+          join fw_services n
+            on q.id_contract_inst = n.id_contract_inst
+           and n.dt_start <= current_timestamp
+           and n.dt_stop > current_timestamp
+          join fw_contracts y
+            on y.ID_CONTRACT_INST = n.ID_CONTRACT_INST
+           and y.dt_start <= current_timestamp
+           and y.dt_stop > current_timestamp
+         group by n.id_service, y.id_department) fwd
+--3
+/*Найти всех абонентов, у которых величина скидки на услугах менялась 2 и более раз в течение ноября 2017.<br> _Результат_: 
+1) номер договора, сумма АП на текущий момент; 2) номер договора, количество изменений величины скидок на услугах.*/
+--3.2
+select q.id_contract_inst, sum(q.qwe) --номер контракта и общее число изменений велиичины.
+          from (select distinct fcs.ID_CONTRACT_INST,
+                       count(fcs.N_DISCOUNT_PERIOD) as qwe,
+                       fs.id_service
+                  from fw_services_cost fcs
+                  join fw_services fs
+                    on fcs.ID_CONTRACT_INST = fs.ID_CONTRACT_INST
+                 where trunc(fcs.DT_START, 'mm') =
+                       to_date('11-2017', 'mm-yyyy') and
+                       trunc(fcs.DT_START, 'mm') =
+                       to_date('11-2017', 'mm-yyyy')
+                 group by fs.id_service, fcs.ID_CONTRACT_INST) q    
+         where qwe > 1
+         group by q.id_contract_inst;
+         --3.1
+        select fc.id_contract_inst as wer,
+               sum(fs.n_cost_period) as qwer
+          from fw_services_cost fs
+          join fw_contracts fc
+            on fc.id_contract_inst = fs.id_contract_inst
+           and fc.dt_start <= current_timestamp
+           and fc.dt_stop > current_timestamp
+           join(select distinct fcs.ID_CONTRACT_INST,
+                       count(fcs.N_DISCOUNT_PERIOD) as qwe,
+                       fs.id_service
+                  from fw_services_cost fcs
+                  join fw_services fs
+                    on fcs.ID_CONTRACT_INST = fs.ID_CONTRACT_INST
+                 where trunc(fcs.DT_START, 'mm') =
+                       to_date('11-2017', 'mm-yyyy') and
+                       trunc(fcs.DT_START, 'mm') =
+                       to_date('11-2017', 'mm-yyyy')
+                 group by fs.id_service, fcs.ID_CONTRACT_INST) w
+                 on fc.id_contract_inst = w.id_contract_inst
+         where fs.dt_start <= current_timestamp
+           and fs.dt_stop > current_timestamp and qwe>1
+           group by fc.id_contract_inst;
+--5
+/*Вывести названия услуг из топ-5 по величине АП на текущий момент.<br> _
+Результат_: филиал, тип услуги, суммарная величина АП по услуге в филиале. */
+ select q.id_department, q.v_name, qwe
+          from (select d.id_department, fss.v_name, fs.id_service, sum(fcc.N_COST_PERIOD) as qwe
+                  from fw_services_cost fcc
+                  join fw_services fs
+                    on fs.id_contract_inst = fcc.id_contract_inst
+                   and fs.DT_START <= current_timestamp
+                   and fs.dt_stop >= current_timestamp
+                  join fw_services l
+                    on fs.id_service = l.id_service and l.dt_start <=current_timestamp and l.dt_stop >=current_timestamp
+                  join fw_contracts d
+                    on d.id_contract_inst = l.id_contract_inst and d.dt_start <=current_timestamp and d.dt_stop >=current_timestamp
+                    join fw_service fss 
+                    on fss.id_service = l.id_service
+                 where fcc.DT_START <= current_timestamp
+                   and fcc.DT_STOP >= current_timestamp
+                 group by fs.id_service,d.id_department, fss.v_name) q
+            where rownum <= 5
+            order by qwe desc;
+--6
+/*Вывести названия ТП(тарифных планов( из топ-5 по величине АП на последний день прошедшего месяца.<br>
+_Результат_: филиал, ТП, суммарная величина АП по ТП в филиале. */
+select qwe.id_department, qwe.V_NAME, snc
+  from (select v.id_department,
+               tpp.v_name,
+               tpp.id_tariff_plan,
+               sum(fsc.n_cost_period) as snc
+          from fw_tariff_plan tpp
+          join fw_services fws
+            on tpp.id_tariff_plan = fws.id_tariff_plan
+           and fws.dt_start <= current_timestamp
+           and fws.dt_stop >= current_timestamp
+          join fw_services_cost fsc
+            on fsc.id_contract_inst = fws.id_contract_inst
+           and fsc.dt_start <= last_day(to_date('01.05.2018', 'dd.mm.yyyy'))
+           and fsc.dt_stop >= last_day(to_date('01.05.2018', 'dd.mm.yyyy'))
+          join fw_contracts v
+            on v.id_contract_inst = fsc.id_contract_inst
+         where tpp.dt_start <= current_timestamp
+           and tpp.dt_stop >= current_timestamp
+         group by v.id_department, tpp.id_tariff_plan, tpp.v_name) qwe
+ where rownum <= 5
+ order by snc desc;
+--8
+/*Вывести количество услуг на контрактах, которые входят в топ 30% по величине АП на текущий момент пофилиально.<br> 
+_Результат_: номер договора, наименование филиала, количество услуг.*/
+select a.id_contract_inst, a.id_department, count(a.id_service)
+  from (select distinct fs.id_service,
+                        fc.ID_DEPARTMENT,
+                        fsc.n_cost_period,
+                        fs.id_contract_inst
+          from fw_services fs
+          join fw_contracts fc
+            on fs.id_contract_inst = fc.id_contract_inst
+           and fc.dt_start <= localtimestamp
+           and fc.dt_stop >= localtimestamp
+          join fw_services_cost fsc
+            on fsc.id_contract_inst = fc.id_contract_inst
+           and fsc.dt_start <= current_timestamp
+           and fsc.dt_stop >= current_timestamp
+         where fs.dt_start <= current_timestamp
+           and fs.dt_stop >= current_timestamp
+           and rownum <= (select count(*) from fw_services z) * 0.3
+         order by fsc.n_cost_period desc) a
+ group by a.id_contract_inst, a.id_department;
+--9
+/*Вывести количество основных и доп.услуг на контрактах, которые входят в топ 45% по величине АП за доп.услуги(!) на текущий момент пофилиально.<br> _
+Результат_: номер договора, наименование филиала, кол-во основных услуг, кол-во доп.услуг.*/
+select a.id_contract_inst, a.id_department, max_1, max_0
+  from (select q.id_department, q.id_contract_inst, count(qwe) as max_1
+          from (select distinct fc.id_department,
+                                fc.id_contract_inst,
+                                fs.B_ADD_SERVICE,
+                                fs.id_service qwe,
+                                fsc.n_cost_period
+                  from fw_contracts fc
+                  join fw_services fss
+                    on fc.id_contract_inst = fss.id_contract_inst
+                  join fw_service fs
+                    on fss.id_service = fs.id_service
+                   and fss.dt_start <= current_timestamp
+                   and fss.dt_stop >= current_timestamp
+                  join fw_services_cost fsc
+                    on fsc.id_contract_inst = fc.id_contract_inst
+                   and fsc.dt_start <= current_timestamp
+                   and fss.dt_stop >= current_timestamp
+                 where rownum <=
+                       (select count(id_service) from fw_services) * 0.45
+                   and fs.B_ADD_SERVICE = 1
+                 order by n_cost_period desc) q
+         group by q.id_department, q.id_contract_inst) a
+ join (select w.id_department,
+                    w.id_contract_inst,
+                    count(qwer) as max_0
+               from (select distinct fc.id_department,
+                                     fc.id_contract_inst,
+                                     fs.B_ADD_SERVICE,
+                                     fs.id_service qwer,
+                                     fsc.n_cost_period
+                       from fw_contracts fc
+                       join fw_services fss
+                         on fc.id_contract_inst = fss.id_contract_inst
+                       join fw_service fs
+                         on fss.id_service = fs.id_service
+                        and fss.dt_start <= current_timestamp
+                        and fss.dt_stop >= current_timestamp
+                       join fw_services_cost fsc
+                         on fsc.id_contract_inst = fc.id_contract_inst
+                        and fsc.dt_start <= current_timestamp
+                        and fss.dt_stop >= current_timestamp
+                      where fs.B_ADD_SERVICE = 0) w
+              group by w.id_department, w.id_contract_inst) ww
+    on a.id_department = ww.id_department;
+--10
+/*Вывести номера договоров, на которых отношение суммарной АП за услуги на текущий момент к суммарной скидке за услуги на текущий момент максимально по всем филиалам. 
+2) ... внутри филиала.<br> _
+Результат_: номер договора, наименование филиала, величина АП, величина скидки.*/
+select fws.id_department, max(qwerty)
+from(select fcc.id_contract_inst, (qwer / qwe) as qwerty
+  from (select fc.id_contract_inst, sum(qw) as qwe
+          from (select q.id_contract_inst,
+                       e.id_service,
+                       nvl(sum(w.n_cost_period), 0) qw
+                  from fw_contracts q
+                  join fw_services_cost w
+                    on q.id_contract_inst = w.id_contract_inst  and w.dt_start <= current_timestamp
+                   and w.dt_stop >= current_timestamp
+                  join fw_services e
+                    on e.id_contract_inst = w.id_contract_inst  and e.dt_start <= current_timestamp
+                   and e.dt_stop >= current_timestamp
+                   where q.dt_start <= current_timestamp
+                   and q.dt_stop >= current_timestamp
+                 group by q.id_contract_inst, e.id_service) fc
+         group by fc.id_contract_inst) fc
+ join (select fcc.id_contract_inst, nvl(sum(qwert), NULL) as qwer
+          from (select q.id_contract_inst,
+                       e.id_service,
+                       nvl(sum(w.n_discount_period), NULL) qwert
+                  from fw_contracts q
+                  join fw_services_cost w
+                    on q.id_contract_inst = w.id_contract_inst  and w.dt_start <= current_timestamp
+                   and w.dt_stop >= current_timestamp
+                  join fw_services e
+                    on e.id_contract_inst = w.id_contract_inst  and e.dt_start <= current_timestamp
+                   and e.dt_stop >= current_timestamp
+                 group by q.id_contract_inst, e.id_service) fcc
+         group by fcc.id_contract_inst) fcc
+    on fc.id_contract_inst = fcc.id_contract_inst) t
+ join fw_contracts fcs
+ on fcs.id_contract_inst = t.id_contract_inst
+ join fw_departments fws
+ on fws.id_department = fcs.id_department
+ where qwerty>0
+ group by fws.id_department;
+--11
+select ftp.v_name, sum_n_cost anc, fd.v_name
+  from fw_services fss
+  join (select sum(fcs.n_cost_period) sum_n_cost, fss.id_service
+          from fw_services_cost fcs
+          join fw_services fss
+            on fcs.id_contract_inst = fss.id_contract_inst
+           and fss.dt_start <= current_timestamp
+           and fss.dt_stop >= current_timestamp
+          join fw_service fs
+            on fs.id_service = fss.id_service
+         where fs.B_ADD_SERVICE = 0
+           and fcs.dt_start <= current_timestamp
+           and fcs.dt_stop >= current_timestamp
+         group by fss.id_service
+         order by sum_n_cost desc) a
+    on fss.id_service = a.id_service
+  join fw_tariff_plan ftp
+    on ftp.id_tariff_plan = fss.id_tariff_plan
+  join fw_contracts fc
+    on fc.id_contract_inst = fss.id_contract_inst
+   and fc.dt_start <= current_timestamp
+   and fc.dt_stop >= current_timestamp
+  join fw_departments fd
+    on fd.id_department = fc.id_department
+ where rownum = 1
+ order by anc desc;
