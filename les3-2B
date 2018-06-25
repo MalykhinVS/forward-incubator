@@ -1,0 +1,43 @@
+create or replace function getDecoder_1(v_id_equip_inst in scd_equip_kits.id_equip_kits_inst%type)
+  return varchar2 IS
+
+  v_kits_0 scd_equip_kits.id_contract_inst%TYPE;
+  v_kits_1 scd_equip_kits.id_contract_inst%TYPE;
+  qwe      varchar2(100);
+begin
+  select sek.id_contract_inst
+    into v_kits_0
+    from scd_equip_kits sek
+    join scd_contracts sk
+      on sek.id_contract_inst = sk.id_contract_inst
+     and sek.dt_start <= current_timestamp
+     and sek.dt_stop >= current_timestamp
+   where v_id_equip_inst = sek.id_equip_kits_inst
+     and sk.b_agency = 1;
+
+  select sek.id_contract_inst
+    into v_kits_1
+    from scd_equip_kits sek
+    join scd_contracts sk
+      on sek.id_contract_inst = sk.id_contract_inst
+     and sek.dt_start <= current_timestamp
+     and sek.dt_stop >= current_timestamp
+   where v_id_equip_inst = sek.id_equip_kits_inst
+     and sk.b_agency = 0;
+
+  IF v_kits_0 is not null then
+    select sek.v_cas_id
+      into qwe
+      from scd_equip_kits sek
+     where v_id_equip_inst = sek.id_equip_kits_inst;
+  elsif v_kits_1 is not null then
+      select sek.v_ext_ident
+        into qwe
+        from scd_equip_kits sek
+       where v_id_equip_inst = sek.id_equip_kits_inst;
+    else
+      RAISE_APPLICATION_ERROR(-20020,
+                              'оборудование не найдено');
+    end if;
+    return qwe;
+  end;
