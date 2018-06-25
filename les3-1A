@@ -1,0 +1,15 @@
+CREATE OR REPLACE procedure saveSigners(
+                                        pID_MANAGER in scd_signers.ID_MANAGER%TYPE
+                                        ) is
+pv_us number;
+begin
+   select count(cu.id_user) into pv_us 
+   from ci_users cu 
+   where pID_MANAGER = cu.id_user ;
+   if pv_us = 1 then
+    dbms_output.put_line('найден');
+  else 
+    raise_application_error(-20020,
+                            'пользователь не найден');
+  end if;
+ end;
