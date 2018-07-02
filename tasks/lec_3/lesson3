@@ -1,0 +1,185 @@
+--1
+CREATE OR REPLACE procedure saveSigners(pv_fio      in scd_signers.v_fio%TYPE,
+
+                                        pID_MANAGER in scd_signers.ID_MANAGER%TYPE,
+                                        pACTION     in number) is
+  n_users number;
+begin
+  select count(*)
+    into n_users
+    from CI_USERS cu
+   where pID_MANAGER = cu.id_user;
+  if n_users = 0 then
+    case
+      when pAction = 1 then
+        insert into scd_signers
+          (v_fio, ID_MANAGER)
+        VALUES
+          (pv_fio, pID_MANAGER);
+      when pAction = 2 then
+        update scd_signers ss
+           set ss.V_FIO = pv_fio
+         where ss.ID_MANAGER = pID_MANAGER;
+      when pACTION = 3 then
+        delete from scd_signers ss where ID_MANAGER = pID_MANAGER;
+      else
+        raise_application_error(-19999, 'все плохо.');
+    end case;
+  else
+    raise_application_error(-20020, 'user существует');
+  end if;
+end;
+
+--2.0
+create or replace function getDecoder_2(v_id_equip_inst in scd_equip_kits.id_equip_kits_inst%type)
+  return varchar2 IS
+  v_kits_0 scd_equip_kits.id_contract_inst%TYPE;
+  v_agan   number;
+  qwe      varchar2(100);
+begin
+  select sek.id_contract_inst, sk.b_agency
+    into v_kits_0, v_agan
+    from scd_equip_kits sek
+    join scd_contracts sk
+      on sek.id_contract_inst = sk.id_contract_inst
+     and sek.dt_start <= current_timestamp
+     and sek.dt_stop >= current_timestamp
+   where v_id_equip_inst = sek.id_equip_kits_inst
+     and sk.b_agency in (1, 0);
+  if v_kits_0 is not null and v_agan = 1 then
+    select sek.v_cas_id
+      into qwe
+      from scd_equip_kits sek
+     where v_id_equip_inst = sek.id_equip_kits_inst
+       and sek.dt_start <= current_timestamp
+       and sek.dt_stop >= current_timestamp;
+  elsif v_kits_0 is not null and v_agan = 0 then
+    select sek.v_ext_ident
+      into qwe
+      from scd_equip_kits sek
+     where v_id_equip_inst = sek.id_equip_kits_inst
+       and sek.dt_start <= current_timestamp
+       and sek.dt_stop >= current_timestamp;
+  end if;
+  if qwe is null then
+    RAISE_APPLICATION_ERROR(-20020,
+                            'оборудование не найдено');
+  else
+    return qwe;
+  end if;
+end;
+--2.1
+create or replace function getDecoder_1(v_id_equip_inst in scd_equip_kits.id_equip_kits_inst%type)
+  return varchar2 IS
+  v_kits_0 scd_equip_kits.id_contract_inst%TYPE;
+  v_agan   number;
+  qwe      varchar2(100);
+  qwe1     varchar2(100);
+begin
+  select sek.v_cas_id, sek.v_ext_ident
+    into qwe, qwe1
+    from scd_equip_kits sek
+   where v_id_equip_inst = sek.id_equip_kits_inst
+     and sek.dt_start <= current_timestamp
+     and sek.dt_stop >= current_timestamp;
+  select sek.id_contract_inst, sk.b_agency
+    into v_kits_0, v_agan
+    from scd_equip_kits sek
+    join scd_contracts sk
+      on sek.id_contract_inst = sk.id_contract_inst
+     and sek.dt_start <= current_timestamp
+     and sek.dt_stop >= current_timestamp
+   where v_id_equip_inst = sek.id_equip_kits_inst
+     and sk.b_agency in (1, 0);
+  if v_kits_0 is not null and (nvl(v_agan, 0)) = 1 then
+    return qwe;
+  elsif v_kits_0 is not null then
+    return qwe1;
+  end if;
+  if qwe is null then
+    RAISE_APPLICATION_ERROR(-20020,
+                            'оборудование не найдено');
+  end if;
+  if qwe1 is null then
+    RAISE_APPLICATION_ERROR(-20020,
+                            'оборудование не найдено');
+  end if;
+exception
+  when no_data_found then
+    raise_application_error(-20001, v_id_equip_inst);
+end;
+--3
+create or replace procedure getEquip(pID_EQUIP_KITS_INST in scd_equip_kits.id_equip_kits_inst%TYPE default null,
+                                     dwr                 out sys_refcursor) is
+begin
+  OPEN dwr FOR
+    SELECT fcs.V_LONG_TITLE,
+           CU.V_USERNAME,
+           fc.ID_CONTRACT_INST,
+           sekt.V_NAME,
+           case
+             when pID_EQUIP_KITS_INST is not null then
+              getDecoder_1(pID_EQUIP_KITS_INST)
+             else
+              NULL
+           end
+      from scd_equip_kits sekk
+      join SCD_EQUIPMENT_KITS_TYPE sekt
+        ON sekk.ID_EQUIP_KITS_TYPE = sekt.ID_EQUIP_KITS_TYPE
+       and sekk.dt_start <= current_timestamp
+       and sekk.dt_stop >= current_timestamp
+      JOIN FW_CONTRACTS fc
+        ON sekk.ID_CONTRACT_INST = fc.ID_CONTRACT_INST
+       and fc.dt_start <= current_timestamp
+       and fc.dt_stop >= current_timestamp
+      JOIN CI_USERS cu
+        ON fc.ID_CLIENT_INST = cu.ID_CLIENT_INST
+      JOIN FW_CLIENTS fcs
+        ON CU.ID_CLIENT_INST = fcs.ID_CLIENT_INST
+       and fcs.dt_start <= current_timestamp
+       and fcs.dt_stop >= current_timestamp
+     where sekk.id_equip_kits_inst = pID_EQUIP_KITS_INST;
+  close dwr;
+end getEquip;
+--4
+/*Реализовать с помощью цикла по курсору процедуру checkstatus.
+Процедура должна для записей, у которых scd_equip_kits.id_dealer_client не null, но статус отличный от Продано(scd_equipment_status) проставить статус Продано. Кроме того,
+вывести в dbms_output.put_line информацию в виде: "Для оборудования scd_equip_kits.id_equip_kits_inst дилера fw_clients.v_long_tittle с контрактом fw_contracts.v_ext_ident,
+являющегося(если scd_contracts.b_agency = 1)/неявляющегося(если scd_contracts.b_agency = 0) агентской сетью был проставлен статус Продано."*/
+create or replace procedure checkstatus is
+begin
+  for i in (select sek.id_dealer_client,
+                   ses.id_equipment_status,
+                   sek.id_equip_kits_inst,
+                   fcs.v_long_title,
+                   fc.v_ext_ident,
+                   sc.b_agency
+              from scd_equip_kits sek 
+              JOIN SCD_EQUIPMENT_STATUS ses 
+                ON ses.ID_EQUIPMENT_STATUS = sek.ID_STATUS
+              JOIN FW_CONTRACTS fc 
+                ON sek.ID_CONTRACT_INST = fc.ID_CONTRACT_INST
+               and fc.dt_start <= current_timestamp
+               and fc.dt_stop >= current_timestamp
+              JOIN SCD_CONTRACTS sc 
+                ON fc.ID_CONTRACT_INST = sc.ID_CONTRACT_INST
+              JOIN FW_CLIENTS fcs
+                ON fc.ID_CLIENT_INST = fcs.ID_CLIENT_INST
+               and fcs.dt_start <= current_timestamp
+               and fcs.dt_stop >= current_timestamp
+             where sek.dt_start <= current_timestamp
+               and sek.dt_stop >= current_timestamp
+               and sek.id_dealer_client is not null
+               and ses.v_name <> 'Продано') loop
+    update scd_equip_kits sek
+       set sek.id_status = 'Продано'
+     where sek.id_dealer_client = i.id_dealer_client;
+    dbms_output.put_line('Для оборудования' || i.id_equip_kits_inst ||
+                         'дилера' || i.v_long_title || 'с контрактом' ||
+                         i.v_ext_ident || 'являющегося' || case when
+                         i.b_agency = 1 then 'являющегося' else
+                         'не являющегося'
+                         end ||
+                         'агентской сетью был проставлен статус Продано.');
+  end loop;
+end;
