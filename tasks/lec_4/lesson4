@@ -1,0 +1,262 @@
+create or replace package pckg is
+
+  procedure getcommutator(V_IP  IN incb_commutator.ip_address%TYPE,
+                          V_MAC IN incb_commutator.v_mac_address%TYPE,
+                          dwr   out sys_refcursor);
+
+  procedure saveCOMMUTATOR(pID_COMMUTATOR      in incb_commutator.id_commutator%type,
+                           pIP_ADDRESS         in incb_commutator.ip_address%type,
+                           pID_COMMUTATOR_TYPE in incb_commutator.id_commutator_type%type,
+                           pV_DESCRIPTION      in incb_commutator.v_description%type,
+                           pB_DELETED          in incb_commutator.b_deleted%type,
+                           pV_MAC_ADDRESS      in incb_commutator.v_mac_address%type,
+                           pV_COMMUNITY_READ   in incb_commutator.v_community_read%type,
+                           pV_COMMUNITY_WRITE  in incb_commutator.v_community_write%type,
+                           pREMOTE_ID          in incb_commutator.remote_id%type,
+                           pB_NEED_CONVERT_HEX in incb_commutator.b_need_convert_hex%type,
+                           pREMOTE_ID_HEX      in incb_commutator.remote_id_hex%type,
+                           PACTION             in number);
+
+  function check_access_comm(pip_address  in incb_commutator.ip_address%type,
+                             pv_community in varchar2,
+                             pb_mode      in number) return number;
+
+  function get_remote_id(pid_commutator in incb_commutator.id_commutator%type)
+    return VARCHAR2;
+
+  procedure check_and_del_data1(B_FORCE_DELETE in incb_commutator.b_deleted%type,
+                                qwe            out incb_commutator.id_commutator%type);
+
+end pckg;
+-------------------------------------------------------------------------------------------
+create or replace package body pckg is
+
+  procedure getCOMMUTATOR(V_IP  IN incb_commutator.ip_address%TYPE,
+                          V_MAC IN incb_commutator.v_mac_address%TYPE,
+                          dwr   out sys_refcursor) is
+  begin
+    open dwr for
+      select *
+        from incb_commutator ic
+       where ic.ip_address = v_ip
+         and ic.v_mac_address = v_mac;
+  end getCOMMUTATOR;
+
+  procedure saveCOMMUTATOR(pID_COMMUTATOR      in incb_commutator.id_commutator%type,
+                           pIP_ADDRESS         in incb_commutator.ip_address%type,
+                           pID_COMMUTATOR_TYPE in incb_commutator.id_commutator_type%type,
+                           pV_DESCRIPTION      in incb_commutator.v_description%type,
+                           pB_DELETED          in incb_commutator.b_deleted%type,
+                           pV_MAC_ADDRESS      in incb_commutator.v_mac_address%type,
+                           pV_COMMUNITY_READ   in incb_commutator.v_community_read%type,
+                           pV_COMMUNITY_WRITE  in incb_commutator.v_community_write%type,
+                           pREMOTE_ID          in incb_commutator.remote_id%type,
+                           pB_NEED_CONVERT_HEX in incb_commutator.b_need_convert_hex%type,
+                           pREMOTE_ID_HEX      in incb_commutator.remote_id_hex%type,
+                           PACTION             in number) is
+    l_cnt number;
+  begin
+    case PACTION
+      when 1 then
+        select count(1)
+          into l_cnt
+          from incb_commutator i
+         where i.b_deleted = 0
+           and i.ip_address = pIP_ADDRESS;
+        if l_cnt != 0 then
+          raise_application_error(-20100,
+                                  'В системе уже есть такой ip!');
+        end if;
+      
+        select count(1)
+          into l_cnt
+          from incb_commutator i
+         where i.b_deleted = 0
+           and i.v_mac_address = pV_MAC_ADDRESS;
+        if l_cnt != 0 then
+          raise_application_error(-20099,
+                                  'В системе уже есть такой мак-адрес!');
+        end if;
+        --запилю кривую проверку на инвалидность
+      
+        if instr(pip_address, ' ') != 0 then
+          RAISE_APPLICATION_ERROR(-20098, 'error1'); --пробелы
+        
+        elsif length(pip_address) > 15 or length(pip_address) < 7 then
+          RAISE_APPLICATION_ERROR(-20097, 'error2');
+        end if;
+      
+        for i in 1 .. length(pIP_ADDRESS) loop
+          if not ((ascii(substr(pIP_ADDRESS, i, 1)) >= 48) and
+              (ascii(substr(pIP_ADDRESS, i, 1)) <= 57) or
+              substr(pIP_ADDRESS, i, 1) = '.' or not null) then
+            raise_application_error(-20096,
+                                    'не только цифры!');
+          end if;
+        end loop;
+      
+        if pB_NEED_CONVERT_HEX = 1 and pREMOTE_ID_HEX is null then
+          raise_application_error(-20095,
+                                  'необходимо заполнить поле REMOTE_ID_HEX!');
+        elsif pB_NEED_CONVERT_HEX = 0 and pREMOTE_ID is null then
+          raise_application_error(-20094,
+                                  'необходимо заполнить поле REMOTE_ID!');
+        end if;
+      
+        if pIP_ADDRESS is null and pV_MAC_ADDRESS is null and
+           pV_COMMUNITY_READ is null and pV_COMMUNITY_WRITE is null then
+          raise_application_error(-20093,
+                                  'не заполнены мак,ip и тд');
+        else
+          insert into incb_commutator
+            (id_commutator,
+             ip_address,
+             id_commutator_type,
+             v_description,
+             b_deleted,
+             v_mac_address,
+             v_community_read,
+             v_community_write,
+             remote_id,
+             b_need_convert_hex,
+             remote_id_hex)
+          values
+            (s_incb_commutator.nextval,
+             pip_address,
+             pid_commutator_type,
+             pv_description,
+             pb_deleted,
+             pv_mac_address,
+             pv_community_read,
+             pv_community_write,
+             premote_id,
+             pb_need_convert_hex,
+             premote_id_hex);
+        end if;
+      
+      when 2 then
+      
+        if pB_NEED_CONVERT_HEX = 1 and pREMOTE_ID_HEX is null then
+          raise_application_error(-20092,
+                                  'необходимо заполнить поле REMOTE_ID_HEX!');
+        elsif pB_NEED_CONVERT_HEX = 0 and pREMOTE_ID is null then
+          raise_application_error(-20091,
+                                  'необходимо заполнить поле REMOTE_ID!');
+        end if;
+      
+        if pIP_ADDRESS is null and pV_MAC_ADDRESS is null then
+          raise_application_error(-20090,
+                                  'не заполнены мак,ip');
+        else
+          update incb_commutator
+             set id_commutator      = pid_commutator,
+                 id_commutator_type = pid_commutator_type,
+                 v_description      = pv_description,
+                 b_deleted          = pb_deleted,
+                 REMOTE_ID_HEX      = pREMOTE_ID_HEX,
+                 REMOTE_ID          = pREMOTE_ID,
+                 v_community_read   = pv_community_read,
+                 v_community_write  = pv_community_write,
+                 b_need_convert_hex = pb_need_convert_hex
+           where ip_address = pip_address
+              or v_mac_address = pv_mac_address;
+        end if;
+      when 3 then
+        delete from incb_commutator ic
+         where ic.IP_ADDRESS = PIP_ADDRESS
+            or ic.ID_COMMUTATOR_TYPE = PID_COMMUTATOR_TYPE
+            or ic.b_deleted = PB_DELETED
+            or ic.V_MAC_ADDRESS = PV_MAC_ADDRESS;
+    end case;
+  end;
+
+  function check_access_comm(pip_address  in incb_commutator.ip_address%type,
+                             pv_community in varchar2,
+                             pb_mode      in number) return number is
+    l_cnt       number;
+    l_cnt_read  incb_commutator.v_community_read%type;
+    l_cnt_write incb_commutator.v_community_write%type;
+  begin
+    select count(*), v_community_read, v_community_write
+      into l_cnt, l_cnt_read, l_cnt_write
+      from incb_commutator ic
+     where ic.b_deleted = 0
+       and pip_address = ic.ip_address;
+    if l_cnt = 0 then
+      raise_application_error(-20010, 'Òàêîé çàïèñè íå ñóùåñòâóåò');
+    else
+      case
+        when pb_mode = 1 and pv_community = l_cnt_write then
+          return 1;
+        when pb_mode = 1 and pv_community <> l_cnt_write then
+          return 0;
+        when pb_mode = 0 and pv_community = l_cnt_read then
+          return 1;
+        when pb_mode = 0 and pv_community <> l_cnt_read then
+          return 0;
+      end case;
+    end if;
+  end check_access_comm;
+
+  function get_remote_id(pid_commutator in incb_commutator.id_commutator%type)
+    return VARCHAR2 is
+    pb_need_convert_hex incb_commutator.b_need_convert_hex%type;
+    premote_id_hex      incb_commutator.remote_id_hex%type;
+    premote_id          incb_commutator.remote_id_hex%type;
+  begin
+    select ic.b_need_convert_hex, ic.remote_id_hex, ic.remote_id
+      into pb_need_convert_hex, premote_id_hex, premote_id
+      from incb_commutator ic
+     where ic.id_commutator = pid_commutator;
+    if pb_need_convert_hex = 1 and premote_id_hex is null then
+      raise_application_error(-20001,
+                              'Не заполнено поле premote_id_hex');
+    elsif pb_need_convert_hex = 1 and premote_id_hex is not null then
+      return premote_id_hex;
+    elsif pb_need_convert_hex = 0 and premote_id is not null then
+      return premote_id;
+    end if;
+  end get_remote_id;
+
+  procedure check_and_del_data1(B_FORCE_DELETE in
+                                                  incb_commutator.b_deleted%type,
+                                                  qwe out
+                                                  incb_commutator.id_commutator%type) is type nested_type is table of number;
+  nt1    nested_type;
+begin
+  select ic1.id_commutator
+    bulk collect
+    into nt1
+    from (select ip_address, count(ip_address) as cip
+            from incb_commutator
+           group by ip_address) ic2
+    join incb_commutator ic1
+      on ic2.ip_address = ic1.ip_address
+    join (select v_mac_address, count(v_mac_address) as vma
+            from incb_commutator
+           group by v_mac_address) ic3
+      on ic3.v_mac_address = ic1.v_mac_address
+   where ic2.cip > 1
+      or ic3.vma > 1;
+
+  for i in 1 .. nt1.count loop
+    if B_FORCE_DELETE = 1 then
+      saveCOMMUTATOR(pID_COMMUTATOR      => nt1(i),
+                     pIP_ADDRESS         => null,
+                     pID_COMMUTATOR_TYPE => null,
+                     pV_DESCRIPTION      => null,
+                     pB_DELETED          => null,
+                     pV_MAC_ADDRESS      => null,
+                     pV_COMMUNITY_READ   => null,
+                     pV_COMMUNITY_WRITE  => null,
+                     pREMOTE_ID          => null,
+                     pB_NEED_CONVERT_HEX => null,
+                     pREMOTE_ID_HEX      => null,
+                     PACTION             => 3);
+    else
+      qwe := nt1(i);
+    end if;
+  end loop;
+end;
+
+end;
